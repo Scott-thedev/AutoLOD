@@ -80,7 +80,7 @@ class LowPolyPanel(bpy.types.Panel):
         layout.label(text="Export LODs:")
         layout.operator("object.export_lods", text="Export")
 
-def custom_surface_simplification(mesh, target_vertex_count):
+def my_surface_simplification(mesh, target_vertex_count):
     # Create a BMesh object from the mesh data
     bm = bmesh.new()
     bm.from_mesh(mesh)
@@ -101,7 +101,9 @@ def custom_surface_simplification(mesh, target_vertex_count):
         # Collapse the vertex to its optimal position
         collapse_to = min(vert.link_edges, key=lambda e: vert["cost"] + e.other_vert(vert)["cost"])
         bmesh.ops.collapse(bm, verts=[vert], uvs=True, del_faces=True, del_edges=True)
-        collapse_to.calc_normal()  # Update the normal of the collapsed vertex
+        
+        # Update the normal of the collapsed vertex
+        collapse_to.calc_normal() 
 
     # Update the mesh with the modified BMesh data
     bm.to_mesh(mesh)
@@ -146,7 +148,7 @@ class DecimateHighPolyModelOperator(bpy.types.Operator):
             mesh = active_obj.data
             target_vertex_count = int(len(mesh.vertices) * bpy.context.scene.decimation_ratio)
 
-            custom_surface_simplification(mesh, target_vertex_count)
+            my_surface_simplification(mesh, target_vertex_count)
 
             # Recalculate vertex normals after simplification
             bpy.ops.object.mode_set(mode='EDIT')
@@ -157,9 +159,7 @@ class DecimateHighPolyModelOperator(bpy.types.Operator):
             self.report({'INFO'}, "Surface simplification applied")
 
         elif bpy.context.scene.simplification_method == 'SURFACE_SIMPLIFICATION':
-            # Apply your custom surface simplification algorithm here
-            # Modify the geometry of the mesh to reduce the polygon count
-            # You can access the mesh data with active_obj.data
+            # TODO: MORE DECIMATION OPTIONS
 
             self.report({'INFO'}, "Surface simplification applied")
 
@@ -258,12 +258,11 @@ class ChooseHighPolyModelOperator(bpy.types.Operator):
     bl_label = "Choose High-Poly Model"
 
     def execute(self, context):
-        # Code to select the high-poly model from the scene
+        #select the high-poly model from the scene
         selected_objects = bpy.context.selected_objects
         if len(selected_objects) == 1:
             highpoly_obj = selected_objects[0]
-            # Perform further operations with the selected high-poly model
-            # For example, you can access the object data with highpoly_obj.data
+            # TODO: Perform further operations with the selected high-poly model
             self.report({'INFO'}, "High-poly model selected")
         else:
             self.report({'ERROR'}, "Please select only one high-poly model")
@@ -275,7 +274,7 @@ class ImportHighPolyModelOperator(bpy.types.Operator):
     bl_label = "Import High-Poly Model"
 
     def execute(self, context):
-        # Code to open a file browser and import the high-poly model
+        # open a file browser and import the high-poly model
         filepath = ""
         file_format = bpy.context.scene.export_format
         if file_format == 'OBJ':
@@ -284,10 +283,9 @@ class ImportHighPolyModelOperator(bpy.types.Operator):
             bpy.ops.import_scene.fbx(filepath=filepath)
         elif file_format == 'STL':
             bpy.ops.import_mesh.stl(filepath=filepath)
-        # Add support for other file formats as needed
+        # TODO: Add support for other file formats as needed
 
-        # Perform further operations with the imported high-poly model
-        # For example, you can access the imported object with bpy.context.selected_objects[0]
+        # TODO: Perform further operations with the imported high-poly model
 
         self.report({'INFO'}, "High-poly model imported")
         return {'FINISHED'}
