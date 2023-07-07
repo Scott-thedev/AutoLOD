@@ -1,28 +1,9 @@
-# ***** BEGIN GPL LICENSE BLOCK *****
-#
-#
-# This program is free software; you can redistribute it and/or
-# modify it under the terms of the GNU General Public License
-# as published by the Free Software Foundation; either version 2
-# of the License, or (at your option) any later version.
-#
-# This program is distributed in the hope that it will be useful,
-# but WITHOUT ANY WARRANTY; without even the implied warranty of
-# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-# GNU General Public License for more details.
-#
-# You should have received a copy of the GNU General Public License
-# along with this program; if not, write to the Free Software Foundation,
-# Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA.
-#
-# ***** END GPL LICENCE BLOCK *****
-
 ############################################################
 # GENERATE LOW POLY #
 ############################################################
 # BLENDER ADD-ON THAT AUTOMATES THE PROCESS OF CREATING A
-# LOW POLY MODEL FROM A HIGH POLY MODEL. PRESUMABLY IN
-# PREPERATION FOR BAKING IN SOMETHING LIKE MARMOSET TOOLBAG
+# LOW POLY MODEL FROM A HIGH POLY MODEL. CAPABLE OF GENERATING 
+# MULTIPLE LOD's
 #############################################################
 # AUTHOR: SCOTT CLAYTON #
 # ############################################################
@@ -38,7 +19,6 @@
 #----CUSTOM SIMPLIFICATION ALGORITHM
 #############################################################
 
-from cgitb import text
 import bpy
 import bmesh
 
@@ -65,22 +45,26 @@ class LowPolyPanel(bpy.types.Panel):
         layout.prop(scene, "simplification_method", text="Simplification Method")
         layout.prop(scene, "smoothing", text="Smoothing")
         layout.prop(scene, "preserve_materials", text="Preserve Materials")
-        layout.prop(scene, "export_format", text="Export Format")
+    #    layout.prop(scene, "export_format", text="Export Format")
 
         # Add import options
-        layout.label(text="Import High-Poly Model:")
-        layout.operator("object.choose_highpoly_model", text="Choose from Scene")
-        layout.operator("object.import_highpoly_model", text="Import External Model")
+    #    layout.label(text="Import High-Poly Model:")
+    #    layout.operator("object.choose_highpoly_model", text="Choose from Scene")
+    #    layout.operator("object.import_highpoly_model", text="Import External Model")
 
         # Add decimation button
         layout.label(text="Decimation:")
         layout.operator("object.decimate_highpoly_model", text="Decimate")
 
-        # Add export button
-        layout.label(text="Export LODs:")
-        layout.operator("object.export_lods", text="Export")
+        # Generate LODs button
+        layout.label(text="Generate LODs:")
+        layout.operator("object.generate_lods", text="Generate LODs")
 
-def my_surface_simplification(mesh, target_vertex_count):
+        # Add export button
+    #    layout.label(text="Export LODs:")
+    #    layout.operator("object.export_lods", text="Export")
+
+def custom_surface_simplification(mesh, target_vertex_count):
     # Create a BMesh object from the mesh data
     bm = bmesh.new()
     bm.from_mesh(mesh)
@@ -101,9 +85,7 @@ def my_surface_simplification(mesh, target_vertex_count):
         # Collapse the vertex to its optimal position
         collapse_to = min(vert.link_edges, key=lambda e: vert["cost"] + e.other_vert(vert)["cost"])
         bmesh.ops.collapse(bm, verts=[vert], uvs=True, del_faces=True, del_edges=True)
-        
-        # Update the normal of the collapsed vertex
-        collapse_to.calc_normal() 
+        collapse_to.calc_normal()  # Update the normal of the collapsed vertex
 
     # Update the mesh with the modified BMesh data
     bm.to_mesh(mesh)
@@ -122,8 +104,7 @@ class DecimateHighPolyModelOperator(bpy.types.Operator):
             return {'CANCELLED'}
 
         # Create a new mesh object for the LOD
-        mesh = obj.data.copy()
-        lod_mesh = bpy.data.meshes.new_from_object(obj)
+        lod_mesh = obj.data.copy()
         obj_data = bpy.data.objects.new(f"LOD_{obj.name}", lod_mesh)
         context.collection.objects.link(obj_data)
 
@@ -140,15 +121,14 @@ class DecimateHighPolyModelOperator(bpy.types.Operator):
             modifier = obj_data.modifiers.new(name="Decimate", type='DECIMATE')
             modifier.ratio = bpy.context.scene.decimation_ratio
             modifier.use_quadric_optimize = True
-            dmodifier.use_collapse_triangulate = not bpy.context.scene.preserve_sharp_edges
+            modifier.use_collapse_triangulate = not bpy.context.scene.preserve_sharp_edges
             bpy.ops.object.modifier_apply({"object": obj_data}, modifier=modifier.name)
 
         elif bpy.context.scene.simplification_method == 'CUSTOM_QUADRIC_ERROR_METRIC':
             # Perform custom surface simplification using QEM
-            mesh = active_obj.data
-            target_vertex_count = int(len(mesh.vertices) * bpy.context.scene.decimation_ratio)
+            target_vertex_count = int(len(obj_data.data.vertices) * bpy.context.scene.decimation_ratio)
 
-            my_surface_simplification(mesh, target_vertex_count)
+            custom_surface_simplification(obj_data.data, target_vertex_count)
 
             # Recalculate vertex normals after simplification
             bpy.ops.object.mode_set(mode='EDIT')
@@ -159,7 +139,9 @@ class DecimateHighPolyModelOperator(bpy.types.Operator):
             self.report({'INFO'}, "Surface simplification applied")
 
         elif bpy.context.scene.simplification_method == 'SURFACE_SIMPLIFICATION':
-            # TODO: MORE DECIMATION OPTIONS
+            # Apply your custom surface simplification algorithm here
+            # Modify the geometry of the mesh to reduce the polygon count
+            # You can access the mesh data with obj_data.data
 
             self.report({'INFO'}, "Surface simplification applied")
 
@@ -182,30 +164,26 @@ class GenerateLODsOperator(bpy.types.Operator):
         
         # Create LODs based on the specified level of detail
         lod_levels = bpy.context.scene.lod_levels
-
-        #create list to hold lods. see line 176
+        # Create a list to hold LODs
         lods = []
-        
+
         # Create a copy of the active object's mesh for each LOD
-        for lod_level in range(1, lod_levels+1):
+        for lod_level in range(1, lod_levels + 1):
             # Create a new mesh and copy the data from the active object's mesh
-            mesh = bpy.data.meshes.new(name=f"LOD{lod_level}")
-            mesh.from_mesh(active_obj.data)
-            
-            # Create a new object and link it to the scene
-            obj = bpy.data.objects.new(name=f"LOD{lod_level}", object_data=mesh)
-            bpy.context.collection.objects.link(obj)
-            
+            lod_mesh = active_obj.data.copy()
+            obj_data = bpy.data.objects.new(f"LOD{lod_level}_{active_obj.name}", lod_mesh)
+            context.collection.objects.link(obj_data)
+
             # Apply the decimation algorithm to the new LOD object
-            bpy.context.view_layer.objects.active = obj
+            bpy.context.view_layer.objects.active = obj_data
             bpy.ops.object.decimate_highpoly_model()
-            
+
             # Scale the LOD object based on the specified LOD scale factor
-            scale_factor = bpy.context.scene.lod_scale_factor
-            obj.scale *= scale_factor
-            
-            #add to lods list for creating hirearchy
-            lods.append(f"LOD{lod_level}")
+            #scale_factor = bpy.context.scene.lod_scale_factor
+            #obj_data.scale *= scale_factor
+
+            # Add to LODs list for creating hierarchy
+            lods.append(obj_data)
 
             # Transfer materials and UV mappings from the high-poly model to the LOD object
             bpy.context.view_layer.objects.active = active_obj
@@ -214,43 +192,48 @@ class GenerateLODsOperator(bpy.types.Operator):
             bpy.ops.object.material_slot_copy()
             bpy.ops.uv.unwrap(method='ANGLE_BASED', margin=0.001)
 
-            bpy.context.view_layer.objects.active = obj
+            bpy.context.view_layer.objects.active = obj_data
             bpy.ops.object.mode_set(mode='EDIT')
             bpy.ops.object.material_slot_paste()
             bpy.ops.uv.unwrap(method='ANGLE_BASED', margin=0.001)
+            
+            # Update progress bar
+            progress = lod_level / lod_levels
+            self.report({'INFO'}, f"Generating LODs: {lod_level}/{lod_levels}")
+            self.report({'PROGRESS'}, progress)
 
         # Create a hierarchy of LODs
         for i in range(1, len(lods)):
             lods[i].parent = lods[i - 1]
-        
+
         self.report({'INFO'}, f"{lod_levels} LODs generated")
         return {'FINISHED'}
 
-class ExportLODsOperator(bpy.types.Operator):
+#class ExportLODsOperator(bpy.types.Operator):
     """Operator to export the generated LODs"""
-    bl_idname = "object.export_lods"
-    bl_label = "Export LODs"
+#    bl_idname = "object.export_lods"
+#    bl_label = "Export LODs"
 
-    filepath: bpy.props.StringProperty(subtype="FILE_PATH")
+#    filepath: bpy.props.StringProperty(subtype="FILE_PATH")
 
-    def execute(self, context):
+#    def execute(self, context):
         # Get all LOD objects in the scene
-        lods = [obj for obj in bpy.data.objects if obj.name.startswith("LOD")]
+#        lods = [obj for obj in bpy.data.objects if obj.name.startswith("LOD")]
 
-        if not lods:
-            self.report({'WARNING'}, "No LODs found")
-            return {'CANCELLED'}
+#        if not lods:
+#            self.report({'WARNING'}, "No LODs found")
+#            return {'CANCELLED'}
 
         # Export each LOD object
-        for lod in lods:
-            filepath = self.filepath.replace('.obj', f'_{lod.name}.obj')  # Append LOD name to the file path
-            bpy.ops.export_scene.obj(filepath=filepath, use_selection=True, use_materials=True)
+#        for lod in lods:
+#            filepath = self.filepath.replace('.obj', f'_{lod.name}.obj')  # Append LOD name to the file path
+#            bpy.ops.export_scene.obj(filepath=filepath, use_selection=True, use_materials=True)
 
-        self.report({'INFO'}, "LODs exported successfully")
-        return {'FINISHED'}
+#        self.report({'INFO'}, "LODs exported successfully")
+#        return {'FINISHED'}
 
-def import_highpoly_model(filepath):
-    bpy.ops.import_scene.fbx(filepath=filepath)  # Use appropriate importer based on file format
+#def import_highpoly_model(filepath):
+#    bpy.ops.import_scene.fbx(filepath=filepath)  # Use appropriate importer based on file format
 
 class ChooseHighPolyModelOperator(bpy.types.Operator):
     """Operator to choose a high-poly model from the scene"""
@@ -258,37 +241,39 @@ class ChooseHighPolyModelOperator(bpy.types.Operator):
     bl_label = "Choose High-Poly Model"
 
     def execute(self, context):
-        #select the high-poly model from the scene
+        # Code to select the high-poly model from the scene
         selected_objects = bpy.context.selected_objects
         if len(selected_objects) == 1:
             highpoly_obj = selected_objects[0]
-            # TODO: Perform further operations with the selected high-poly model
+            # Perform further operations with the selected high-poly model
+            # For example, you can access the object data with highpoly_obj.data
             self.report({'INFO'}, "High-poly model selected")
         else:
             self.report({'ERROR'}, "Please select only one high-poly model")
         return {'FINISHED'}
 
-class ImportHighPolyModelOperator(bpy.types.Operator):
+#class ImportHighPolyModelOperator(bpy.types.Operator):
     """Operator to import an external high-poly model"""
-    bl_idname = "object.import_highpoly_model"
-    bl_label = "Import High-Poly Model"
+#    bl_idname = "object.import_highpoly_model"
+#    bl_label = "Import High-Poly Model"
 
-    def execute(self, context):
-        # open a file browser and import the high-poly model
-        filepath = ""
-        file_format = bpy.context.scene.export_format
-        if file_format == 'OBJ':
-            bpy.ops.import_scene.obj(filepath=filepath)
-        elif file_format == 'FBX':
-            bpy.ops.import_scene.fbx(filepath=filepath)
-        elif file_format == 'STL':
-            bpy.ops.import_mesh.stl(filepath=filepath)
-        # TODO: Add support for other file formats as needed
+#    def execute(self, context):
+        # Code to open a file browser and import the high-poly model
+#        filepath = ""
+#        file_format = bpy.context.scene.export_format
+#        if file_format == 'OBJ':
+#            bpy.ops.import_scene.obj(filepath=filepath)
+#        elif file_format == 'FBX':
+#           bpy.ops.import_scene.fbx(filepath=filepath)
+#        elif file_format == 'STL':
+#            bpy.ops.import_mesh.stl(filepath=filepath)
+        # Add support for other file formats as needed
 
-        # TODO: Perform further operations with the imported high-poly model
+        # Perform further operations with the imported high-poly model
+        # For example, you can access the imported object with bpy.context.selected_objects[0]
 
-        self.report({'INFO'}, "High-poly model imported")
-        return {'FINISHED'}
+#        self.report({'INFO'}, "High-poly model imported")
+#        return {'FINISHED'}
 
 def register():
     bpy.types.Scene.lod_level = bpy.props.IntProperty(
@@ -298,12 +283,12 @@ def register():
         description="Level of detail for the low-poly model"
     )
 
-    bpy.types.Scene.export_path = bpy.props.StringProperty(
-        name="Export Path",
-        default="",
-        subtype='FILE_PATH',
-        description="Path to export the LODs"
-    )
+#    bpy.types.Scene.export_path = bpy.props.StringProperty(
+#        name="Export Path",
+#        default="",
+#        subtype='FILE_PATH',
+#        description="Path to export the LODs"
+#    )
 
     bpy.types.Scene.lod_levels = bpy.props.IntProperty(
         name="LOD Levels",
@@ -311,14 +296,14 @@ def register():
         min=1,
         description="Number of LODs to generate"
     )
-    
-    bpy.types.Scene.lod_scale_factor = bpy.props.FloatProperty(
-        name="LOD Scale Factor",
-        default=0.5,
-        min=0.0,
-        max=1.0,
-        description="Scale factor for each LOD"
-    )
+
+    #bpy.types.Scene.lod_scale_factor = bpy.props.FloatProperty(
+    #    name="LOD Scale Factor",
+    #    default=0.5,
+    #    min=0.0,
+    #    max=1.0,
+    #    description="Scale factor for each LOD"
+    #)
 
     bpy.types.Scene.decimation_ratio = bpy.props.FloatProperty(
         name="Decimation Ratio",
@@ -364,30 +349,31 @@ def register():
         description="Transfer materials from high-poly to low-poly"
     )
 
-    bpy.types.Scene.export_format = bpy.props.EnumProperty(
-        name="Export Format",
-        items=[
-            ('OBJ', "OBJ", "Wavefront OBJ format"),
-            ('FBX', "FBX", "Autodesk FBX format"),
-            ('STL', "STL", "STereoLithography format")
-        ],
-        default='OBJ',
-        description="File format for exporting the low-poly model"
-    )
+#    bpy.types.Scene.export_format = bpy.props.EnumProperty(
+#        name="Export Format",
+#        items=[
+#            ('OBJ', "OBJ", "Wavefront OBJ format"),
+#            ('FBX', "FBX", "filmbox"),
+#            ('STL', "STL", "STereoLithography format")
+#        ],
+#        default='OBJ',
+#        description="File format for exporting the low-poly model"
+#    )
 
     bpy.utils.register_class(LowPolyPanel)
     bpy.utils.register_class(ChooseHighPolyModelOperator)
-    bpy.utils.register_class(ImportHighPolyModelOperator)
+#    bpy.utils.register_class(ImportHighPolyModelOperator)
     bpy.utils.register_class(DecimateHighPolyModelOperator)
     bpy.utils.register_class(GenerateLODsOperator)
-    bpy.utils.register_class(ExportLODsOperator)
+#    bpy.utils.register_class(ExportLODsOperator)
 
 def unregister():
     bpy.utils.unregister_class(LowPolyPanel)
     bpy.utils.unregister_class(ChooseHighPolyModelOperator)
-    bpy.utils.unregister_class(ImportHighPolyModelOperator)
+#    bpy.utils.unregister_class(ImportHighPolyModelOperator)
     bpy.utils.unregister_class(DecimateHighPolyModelOperator)
     bpy.utils.unregister_class(GenerateLODsOperator)
+#    bpy.utils.unregister_class(ExportLODsOperator)
     del bpy.types.Scene.export_path
     del bpy.types.Scene.lod_level
     del bpy.types.Scene.lod_levels
